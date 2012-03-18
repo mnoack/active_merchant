@@ -159,6 +159,11 @@ merchant_ware:
  password: 
  name: 
 
+# Working credentials, no need to replace
+migs:
+  login: TESTANZTEST3
+  password: '6447E199'
+
 modern_payments:
   login: login
   password: password
