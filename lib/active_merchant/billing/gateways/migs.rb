@@ -2,23 +2,36 @@ module ActiveMerchant #:nodoc:
   module Billing #:nodoc:
     class MigsGateway < Gateway
       API_VERSION = 1
-      
+
       SERVER_HOSTED_URL = 'https://migs.mastercard.com.au/vpcpay'
       MERCHANT_HOSTED_URL = 'https://migs.mastercard.com.au/vpcdps'
-      
+
       TXN_RESPONSE_CODES = {
-        '0' => 'Transaction approved',
-        '1' => 'Transaction could not be processed',
-        '2' => 'Transaction declined - contact issuing bank',
-        '3' => 'No reply from Processing Host',
-        '4' => 'Card has expired',
-        '5' => 'Insufficient credit',
-        '6' => 'Error Communicating with Bank',
-        '7' => 'Message Detail Error',
-        '8' => 'Transaction declined - transaction type not supported',
-        '9' => 'Bank Declined Transaction - Do Not Contact Bank'
+        '?' => 'Response Unknown',
+        '0' => 'Transaction Successful',
+        '1' => 'Transaction Declined - Bank Error',
+        '2' => 'Bank Declined Transaction',
+        '3' => 'Transaction Declined - No Reply from Bank',
+        '4' => 'Transaction Declined - Expired Card',
+        '5' => 'Transaction Declined - Insufficient funds',
+        '6' => 'Transaction Declined - Error Communicating with Bank',
+        '7' => 'Payment Server Processing Error - Typically caused by invalid input data such as an invalid credit card number. Processing errors can also occur',
+        '8' => 'Transaction Declined - Transaction Type Not Supported',
+        '9' => 'Bank Declined Transaction (Do not contact Bank)',
+        'A' => 'Transaction Aborted',
+        'C' => 'Transaction Cancelled',
+        'D' => 'Deferred Transaction',
+        'E' => 'Issuer Returned a Referral Response',
+        'F' => '3D Secure Authentication Failed',
+        'I' => 'Card Security Code Failed',
+        'L' => 'Shopping Transaction Locked (This indicates that there is another transaction taking place using the same shopping transaction number)',
+        'N' => 'Cardholder is not enrolled in 3D Secure (Authentication Only)',
+        'P' => 'Transaction is Pending',
+        'R' => 'Retry Limits Exceeded, Transaction Not Processed',
+        'S' => 'Duplicate OrderInfo used. (This is only relevant for Payment Servers that enforce the uniqueness of this field)',
+        'U' => 'Card Security Code Failed'
       }
-      
+
       ISSUER_RESPONSE_CODES = {
         '00' => 'Approved',
         '01' => 'Refer to Card Issuer',
@@ -44,14 +57,33 @@ module ActiveMerchant #:nodoc:
         '65' => 'Exceeds withdrawal frequency limit',
         '91' => 'Cannot Contact Issuer'
       }
-      
+
       CARD_TYPE_CODES = {
         'AE' => 'American Express',
         'DC' => 'Diners Club',
         'JC' => 'JCB Card',
+        'MS' => 'Maestro Card',
         'MC' => 'MasterCard',
+        'PL' => 'Private Label Card',
         'VC' => 'Visa Card'
       }
+
+      VERIFIED_3D_CODES = {
+        'Y' => 'The cardholder was successfully authenticated.',
+        'E' => 'The cardholder is not enrolled.',
+        'N' => 'The cardholder was not verified.',
+        'U' => 'The cardholder\'s Issuer was unable to authenticate due to a system error at the Issuer.',
+        'F' => 'An error exists in the format of the request from the merchant. For example, the request did not contain all required fields, or the format of some fields was invalid.',
+        'A' => 'Authentication of your Merchant ID and Password to the Directory Server Failed (see "What does a Payment Authentication Status of "A" mean?" on page 85).',
+        'D' => 'Error communicating with the Directory Server, for example, the Payment Server could not connect to the directory server or there was a versioning mismatch.',
+        'C' => 'The card type is not supported for authentication.',
+        'M' => 'This indicates that attempts processing was used. Verification is marked with status M - ACS attempts processing used. Payment is performed with authentication. Attempts is when a cardholder has successfully passed the directory server but decides not to continue with the authentication process and cancels.',
+        'S' => 'The signature on the response received from the Issuer could not be validated. This should be considered a failure.',
+        'T' => 'ACS timed out. The Issuer\'s ACS did not respond to the Authentication request within the time out period.',
+        'P' => 'Error parsing input from Issuer.',
+        'I' => 'Internal Payment Server system error. This could be caused by a temporary DB failure or an error in the security module or by some error in an internal system.'
+      }
+
       
       # The countries the gateway supports merchants from as 2 digit ISO country codes
       # MiGS is supported throughout Asia Pacific, Middle East and Africa
@@ -72,6 +104,7 @@ module ActiveMerchant #:nodoc:
 
       def initialize(options = {})
         requires!(options, :login, :password)
+        @test = options[:login].start_with?('TEST')
         @options = options
         super
       end
@@ -94,30 +127,35 @@ module ActiveMerchant #:nodoc:
       alias_method :authorize, :purchase
 
       def capture(money, authorization, options = {})
-        requires!(options, :advanced_login, :advanced_password)
+        requires!(@options, :advanced_login, :advanced_password)
 
         post = options.merge(:TransNo => authorization)
         post[:Amount] = amount(money)
-        add_advanced_user(post, options)
+        add_advanced_user(post)
 
         commit('capture', post)
       end
 
       def refund(money, authorization, options = {})
-        requires!(options, :advanced_login, :advanced_password)
+        requires!(@options, :advanced_login, :advanced_password)
 
         post = options.merge(:TransNo => authorization)
         post[:Amount] = amount(money)
-        add_advanced_user(post, options)
+        add_advanced_user(post)
 
         commit('refund', post)
       end
 
-      def search(options = {})
-        requires!(options, :advanced_login, :advanced_password)
+      def credit(money, authorization, options = {})
+        deprecated CREDIT_DEPRECATION_MESSAGE
+        refund(money, authorization, options)
+      end
 
-        post = options
-        add_ama_user(post, options)
+      def status(unique_id)
+        requires!(@options, :advanced_login, :advanced_password)
+
+        post = {:unique_id => unique_id}
+        add_advanced_user(post)
 
         commit('queryDR', post)
       end
@@ -130,9 +168,9 @@ module ActiveMerchant #:nodoc:
       def add_address(post, creditcard, options)      
       end
 
-      def add_advanced_user(post, options)
-        post[:User] = options[:advanced_login]
-        post[:Password] = options[:advanced_password]
+      def add_advanced_user(post)
+        post[:User] = @options[:advanced_login]
+        post[:Password] = @options[:advanced_password]
       end
 
       def add_invoice(post, options)
@@ -160,23 +198,29 @@ module ActiveMerchant #:nodoc:
         response = parse(data)
 
         Response.new(success?(response), response[:Message], response,
+          :test => @test,
           :authorization => response[:TransactionNo],
-          :transaction_response => TXN_RESPONSE_CODES[response[:TxnResponseCode]],
-          :issuer_response      => ISSUER_RESPONSE_CODES[response[:AcqResponseCode]]
+          :fraud_review => fraud_review?(response),
+          :avs_result => { :code => response[:AVSResultCode] },
+          :cvv_result => response[:CSCResultCode]
         )
       end
 
       def success?(response)
         response[:TxnResponseCode] == '0'
       end
-      
+
+      def fraud_review?(response)
+        ISSUER_RESPONSE_CODES[response[:AcqResponseCode]] == 'Suspected Fraud'
+      end
+
       def post_data(action, parameters = {})
         post = {
           :Version     => API_VERSION,
           :Merchant    => @options[:login],
           :AccessCode  => @options[:password],
           :Command     => action,
-          :MerchTxnRef => @options[:unique_id] || generate_unique_id.slice(0, 40)
+          :MerchTxnRef => parameters[:unique_id] || generate_unique_id.slice(0, 40)
         }
 
         request = post.merge(parameters).collect { |key, value| "vpc_#{key}=#{CGI.escape(value.to_s)}" }.join("&")

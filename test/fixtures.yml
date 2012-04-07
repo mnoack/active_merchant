@@ -163,6 +163,8 @@ merchant_ware:
 migs:
   login: TESTANZTEST3
   password: '6447E199'
+  #advanced_login: testuser
+  #advanced_password: testpass
 
 modern_payments:
   login: login

@@ -11,7 +11,7 @@ class RemoteMigsTest < Test::Unit::TestCase
     @credit_card = credit_card('4005550000000001', :month => 5, :year => 2013)
     
     @options = { 
-      :order_id => '1',
+      :order_id => '1'
     }
   end
   
@@ -27,22 +27,34 @@ class RemoteMigsTest < Test::Unit::TestCase
     assert_equal 'Declined', response.message
   end
 
-  def test_authorize_and_capture
-    @options[:advanced_login] = 'testuser'
-    @options[:advanced_password] = 'testpass'
-    amount = @amount
-    assert auth = @gateway.authorize(amount, @credit_card, @options)
-    assert_success auth
-    assert_equal 'Approved', auth.message
-    assert auth.authorization
-    assert capture = @gateway.capture(amount, auth.authorization, @options)
-    assert_success capture
+  # Cannot test as test gateway does not allow auth/capture mode
+  #def test_authorize_and_capture
+  #  assert auth = @gateway.authorize(@amount, @credit_card, @options)
+  #  assert_success auth
+  #  assert_equal 'Approved', auth.message
+  #  assert capture = @gateway.capture(@amount, auth.params['TransactionNo'], @options)
+  #  assert_success capture
+  #end
+  #
+  #def test_failed_capture
+  #  assert response = @gateway.capture(@declined_amount, @credit_card, @options)
+  #  assert_failure response
+  #  assert_equal 'Declined', response.message
+  #end
+
+  def test_refund
+    assert payment_response = @gateway.purchase(@amount, @credit_card, @options)
+    assert_success payment_response
+    assert response = @gateway.refund(@amount, payment_response.params['TransactionNo'], @options)
+    assert_success response
+    assert_equal 'Approved', response.message
   end
 
-  def test_failed_capture
-    assert response = @gateway.capture(@declined_amount, @credit_card, @options)
-    assert_failure response
-    assert_equal 'Declined', response.message
+  def test_status
+    purchase_response = @gateway.purchase(@declined_amount, @credit_card, @options)
+    assert response = @gateway.status(purchase_response.params['MerchTxnRef'])
+    assert_equal 'Y', response.params['DRExists']
+    assert_equal 'N', response.params['FoundMultipleDRs']
   end
 
   def test_invalid_login
