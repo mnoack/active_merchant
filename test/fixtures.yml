@@ -159,10 +159,12 @@ merchant_ware:
  password: 
  name: 
 
-# Working credentials, no need to replace
+# Partially working credentials, no need to replace
 migs:
   login: TESTANZTEST3
   password: '6447E199'
+  # secure_hash only required for bank hosted transactions
+  #secure_hash: 0F5DD14AE2E38C7EBD8814D29CF6F6F0
   #advanced_login: testuser
   #advanced_password: testpass
 

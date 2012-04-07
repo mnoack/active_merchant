@@ -1,3 +1,5 @@
+require 'digest/md5' # Used in add_secure_hash
+
 module ActiveMerchant #:nodoc:
   module Billing #:nodoc:
     class MigsGateway < Gateway
@@ -58,15 +60,28 @@ module ActiveMerchant #:nodoc:
         '91' => 'Cannot Contact Issuer'
       }
 
-      CARD_TYPE_CODES = {
-        'AE' => 'American Express',
-        'DC' => 'Diners Club',
-        'JC' => 'JCB Card',
-        'MS' => 'Maestro Card',
-        'MC' => 'MasterCard',
-        'PL' => 'Private Label Card',
-        'VC' => 'Visa Card'
-      }
+      class CreditCardType
+        attr_accessor :am_code, :migs_code, :migs_long_code, :name
+        def initialize(am_code, migs_code, migs_long_code, name)
+          @am_code        = am_code
+          @migs_code      = migs_code
+          @migs_long_code = migs_long_code
+          @name           = name
+        end
+      end
+
+      CARD_TYPE_MAPPING = [
+        %w(american_express AE Amex             American\ Express),
+        %w(diners_club      DC Dinersclub       Diners\ Club),
+        %w(jcb              JC JCB              JCB\ Card),
+        %w(maestro          MS Maestro          Maestro\ Card),
+        %w(master           MC Mastercard       MasterCard),
+        %w(?                PL PrivateLabelCard Private\ Label\ Card),
+        %w(visa             VC Visa             Visa\ Card')
+      ].map do |am_code, migs_code, migs_long_code, name|
+        CreditCardType.new(am_code, migs_code, migs_long_code, name)
+      end
+      
 
       VERIFIED_3D_CODES = {
         'Y' => 'The cardholder was successfully authenticated.',
@@ -118,8 +133,9 @@ module ActiveMerchant #:nodoc:
         add_creditcard(post, creditcard)
         add_address(post, creditcard, options)
         add_customer_data(post, options)
+        add_standard_parameters('pay', post)
 
-        commit('pay', post)
+        commit(post)
       end
 
       # MiGS works by merchants being either purchase only or authorize + captures
@@ -132,8 +148,9 @@ module ActiveMerchant #:nodoc:
         post = options.merge(:TransNo => authorization)
         post[:Amount] = amount(money)
         add_advanced_user(post)
+        add_standard_parameters('capture', post)
 
-        commit('capture', post)
+        commit(post)
       end
 
       def refund(money, authorization, options = {})
@@ -142,8 +159,9 @@ module ActiveMerchant #:nodoc:
         post = options.merge(:TransNo => authorization)
         post[:Amount] = amount(money)
         add_advanced_user(post)
+        add_standard_parameters('refund', post)
 
-        commit('refund', post)
+        commit(post)
       end
 
       def credit(money, authorization, options = {})
@@ -156,8 +174,39 @@ module ActiveMerchant #:nodoc:
 
         post = {:unique_id => unique_id}
         add_advanced_user(post)
+        add_standard_parameters('queryDR', post)
 
-        commit('queryDR', post)
+        commit(post)
+      end
+
+      # creditcard: Optional if you want to skip one or multiple stages
+      #   e.g. provide a credit card with only type to skip the type stage
+      # options: A hash with the following keys
+      #   :locale - (e.g. en, es) to change the language of the redirected page
+      #   :return_url - the URL to return to once the payment is complete
+      #   :card_type - Skip the card type step. Values are ActiveMerchant format
+      #                e.g. master, visa, american_express, diners_club
+      def purchase_offsite_url(money, options = {})
+        requires!(options, :order_id, :return_url)
+        requires!(@options, :secure_hash)
+
+        post = {}
+        post[:Amount] = amount(money)
+        add_invoice(post, options)
+        add_creditcard_type(post, options[:card_type]) if options[:card_type]
+        add_address(post, creditcard, options)
+        add_customer_data(post, options)
+
+        post.merge!(
+          :Locale => options[:locale] || 'en',
+          :ReturnURL => options[:return_url]
+        )
+
+        add_standard_parameters('pay', post, options)
+
+        add_secure_hash(post)
+
+        SERVER_HOSTED_URL + '?' + post_data(post)
       end
 
       private                       
@@ -183,6 +232,11 @@ module ActiveMerchant #:nodoc:
         post[:CardExp] = format(creditcard.year, :two_digits) + format(creditcard.month, :two_digits)
       end
 
+      def add_creditcard_type(post, card_type)
+        post[:Gateway]  = 'ssl'
+        post[:card] = CARD_TYPE_MAPPING.detect{|ct| ct.am_code == card_type}.migs_long_code
+      end
+
       def parse(body)
         params = CGI::parse(body)
         hash = {}
@@ -192,8 +246,8 @@ module ActiveMerchant #:nodoc:
         hash
       end     
 
-      def commit(action, parameters)
-        data = ssl_post MERCHANT_HOSTED_URL, post_data(action, parameters)
+      def commit(post)
+        data = ssl_post MERCHANT_HOSTED_URL, post_data(post)
 
         response = parse(data)
 
@@ -214,17 +268,29 @@ module ActiveMerchant #:nodoc:
         ISSUER_RESPONSE_CODES[response[:AcqResponseCode]] == 'Suspected Fraud'
       end
 
-      def post_data(action, parameters = {})
-        post = {
+      def add_standard_parameters(action, post, options = {})
+        post.merge!(
           :Version     => API_VERSION,
           :Merchant    => @options[:login],
           :AccessCode  => @options[:password],
           :Command     => action,
-          :MerchTxnRef => parameters[:unique_id] || generate_unique_id.slice(0, 40)
-        }
+          :MerchTxnRef => options[:unique_id] || generate_unique_id.slice(0, 40)
+        )
+      end
 
-        request = post.merge(parameters).collect { |key, value| "vpc_#{key}=#{CGI.escape(value.to_s)}" }.join("&")
-        request
+      def post_data(post)
+        post.collect { |key, value| "vpc_#{key}=#{CGI.escape(value.to_s)}" }.join("&")
+      end
+
+      def add_secure_hash(post)
+        sorted_post = Hash[post.sort]
+        input = @options[:secure_hash] + sorted_post.values.map(&:to_s).join
+        
+        post[:SecureHash] = Digest::MD5.hexdigest(input).upcase
+      end
+
+      def parse_offsite_response(params)
+        
       end
     end
   end

@@ -4,7 +4,8 @@ class MigsTest < Test::Unit::TestCase
   def setup
     @gateway = MigsGateway.new(
                  :login => 'login',
-                 :password => 'password'
+                 :password => 'password',
+                 :secure_hash => '0F5DD14AE2E38C7EBD8814D29CF6F6F0'
                )
 
     @credit_card = credit_card
@@ -36,6 +37,18 @@ class MigsTest < Test::Unit::TestCase
     assert_failure response
     
     assert_equal '654321', response.authorization
+  end
+
+  def test_secure_hash
+    params = {
+      MerchantId: 'MER123',
+      OrderInfo:  'A48cvE28',
+      Amount:     2995
+    }
+    ordered_values = "#{@gateway.options[:secure_hash]}2995MER123A48cvE28"
+
+    @gateway.send(:add_secure_hash, params)
+    assert_equal Digest::MD5.hexdigest(ordered_values).upcase, params[:SecureHash]
   end
 
   private
