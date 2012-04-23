@@ -5,7 +5,6 @@ class RemoteMigsTest < Test::Unit::TestCase
   def setup
     @gateway = MigsGateway.new(fixtures(:migs_purchase))
     @capture_gateway = MigsGateway.new(fixtures(:migs_capture))
-    @sealink_gateway = MigsGateway.new(fixtures(:migs_sealink))
 
     @amount = 100
     @declined_amount = 105
