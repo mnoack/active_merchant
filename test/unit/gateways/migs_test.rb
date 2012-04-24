@@ -41,9 +41,9 @@ class MigsTest < Test::Unit::TestCase
 
   def test_secure_hash
     params = {
-      MerchantId: 'MER123',
-      OrderInfo:  'A48cvE28',
-      Amount:     2995
+      :MerchantId => 'MER123',
+      :OrderInfo  => 'A48cvE28',
+      :Amount     => 2995
     }
     ordered_values = "#{@gateway.options[:secure_hash]}2995MER123A48cvE28"
 
@@ -76,7 +76,7 @@ class MigsTest < Test::Unit::TestCase
   def successful_purchase_response
     build_response(
       :TxnResponseCode => '0',
-      :TransactionNo => '123456'
+      :TransactionNo   => '123456'
     )
   end
   
@@ -84,7 +84,7 @@ class MigsTest < Test::Unit::TestCase
   def failed_purchase_response
     build_response(
       :TxnResponseCode => '3',
-      :TransactionNo => '654321'
+      :TransactionNo   => '654321'
     )
   end
   

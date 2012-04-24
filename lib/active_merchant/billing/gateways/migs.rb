@@ -250,8 +250,8 @@ module ActiveMerchant #:nodoc:
       end
 
       def calculate_secure_hash(post, secure_hash)
-        sorted_post = Hash[post.sort]
-        input = secure_hash + sorted_post.values.map(&:to_s).join
+        sorted_values = post.sort_by(&:to_s).map(&:last)
+        input = secure_hash + sorted_values.join
         Digest::MD5.hexdigest(input).upcase
       end
     end

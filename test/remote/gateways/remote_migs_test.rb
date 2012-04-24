@@ -21,9 +21,9 @@ class RemoteMigsTest < Test::Unit::TestCase
 
   def test_server_purchase_url
     options = {
-      order_id: 1,
-      unique_id: 9,
-      return_url: 'http://localhost:8080/payments/return'
+      :order_id   => 1,
+      :unique_id  => 9,
+      :return_url => 'http://localhost:8080/payments/return'
     }
 
     choice_url = @gateway.purchase_offsite_url(@amount, options)
